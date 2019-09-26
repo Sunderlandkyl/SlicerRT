@@ -151,9 +151,6 @@ bool vtkPlanarContourToClosedSurfaceConversionRule::Convert(vtkDataObject* sourc
   // remove keyholes from the lines
   this->FixKeyholes(inputContoursCopy, 0.001, 3);
 
-  // set all lines to be counter-clockwise
-  this->SetLinesCounterClockwise(inputContoursCopy);
-
   vtkSmartPointer<vtkPoints> outputPoints = inputContoursCopy->GetPoints();
   vtkSmartPointer<vtkCellArray> outputLines = inputContoursCopy->GetLines();
   vtkSmartPointer<vtkCellArray> outputPolygons = vtkSmartPointer<vtkCellArray>::New(); // Triangles should be added to this
@@ -338,6 +335,8 @@ void vtkPlanarContourToClosedSurfaceConversionRule::TriangulateBetweenContours(v
   int numberOfPointsInLine2 = pointsInLine2->GetNumberOfIds();
 
   // Pre-calculate and store the closest points.
+  double maximumDistance = -1;
+  vtkIdType closestPointId = 0;
 
   // Closest point from line 1 to line 2
   std::vector< int > closestPointFromLine1ToLine2Ids(numberOfPointsInLine1);
@@ -345,7 +344,13 @@ void vtkPlanarContourToClosedSurfaceConversionRule::TriangulateBetweenContours(v
   {
     double line1Point[3] = { 0,0,0 };
     inputROIPoints->GetPoint(pointsInLine1->GetId(line1PointIndex), line1Point);
-    closestPointFromLine1ToLine2Ids[line1PointIndex] = this->GetClosestPoint(inputROIPoints, line1Point, pointsInLine2);
+    ClosestPointType closestPoint = this->GetClosestPoint(inputROIPoints, line1Point, pointsInLine2);
+    closestPointFromLine1ToLine2Ids[line1PointIndex] = closestPoint.ID;
+    if (closestPoint.Distance > maximumDistance)
+    {
+      maximumDistance = closestPoint.Distance;
+      closestPointId = line1PointIndex;
+    }
   }
 
   // Closest from line 2 to line 1
@@ -354,13 +359,13 @@ void vtkPlanarContourToClosedSurfaceConversionRule::TriangulateBetweenContours(v
   {
     double line2Point[3] = { 0,0,0 };
     inputROIPoints->GetPoint(pointsInLine2->GetId(line2PointIndex), line2Point);
-    closestPointFromLine2ToLine1Ids[line2PointIndex] = this->GetClosestPoint(inputROIPoints, line2Point, pointsInLine1);
+    ClosestPointType closestPoint = this->GetClosestPoint(inputROIPoints, line2Point, pointsInLine1);
+    closestPointFromLine2ToLine1Ids[line2PointIndex] = closestPoint.ID;
   }
 
-  // Orient loops.
-  // Use the 0th point on line 1 and the closest point on line 2.
-  vtkIdType startLine1PointId = 0;
-  vtkIdType startLine2PointId = closestPointFromLine1ToLine2Ids[0];
+  // The starting point should be between the two closest points
+  vtkIdType startLine1PointId = closestPointId;
+  vtkIdType startLine2PointId = closestPointFromLine1ToLine2Ids[startLine1PointId];
 
   double firstPointLine1[3] = { 0,0,0 }; // first point on line 1;
   inputROIPoints->GetPoint(pointsInLine1->GetId(startLine1PointId), firstPointLine1);
@@ -373,9 +378,39 @@ void vtkPlanarContourToClosedSurfaceConversionRule::TriangulateBetweenContours(v
   bool line1Closed = (pointsInLine1->GetId(0) == pointsInLine1->GetId(numberOfPointsInLine1 - 1));
   bool line2Closed = (pointsInLine2->GetId(0) == pointsInLine2->GetId(numberOfPointsInLine2 - 1));
 
-  // Determine the ending points.
-  int line1EndPoint = this->GetEndLoop(startLine1PointId, numberOfPointsInLine1, line1Closed);
-  int line2EndPoint = this->GetEndLoop(startLine2PointId, numberOfPointsInLine2, line2Closed);
+  bool line1ReverseDirection = true;
+  //double secondPointDistance;
+  //double secondLastPointDistance;
+  //double lastPointDistance;
+  //double lastSecondPointDistance;
+  //if (numberOfPointsInLine1 > 1 && numberOfPointsInLine2 > 1)
+  //{
+  //  double secondPointLine1[3] = { 0,0,0 }; // first point on line 1;
+  //  vtkIdType secondLine1PointId = this->GetNextLocation(startLine1PointId, numberOfPointsInLine1, line1Closed);
+  //  inputROIPoints->GetPoint(pointsInLine1->GetId(secondLine1PointId), secondPointLine1);
+
+  //  double secondPointLine2[3] = { 0,0,0 }; // first point on line 2;
+  //  vtkIdType secondLine2PointId = this->GetNextLocation(startLine2PointId, numberOfPointsInLine2, line2Closed);
+  //  inputROIPoints->GetPoint(pointsInLine2->GetId(secondLine2PointId), secondPointLine2);
+
+  //  double lastPointLine1[3] = { 0,0,0 }; // first point on line 1;
+  //  vtkIdType lastLine1PointId = this->GetPreviousLocation(startLine1PointId, numberOfPointsInLine1, line1Closed);
+  //  inputROIPoints->GetPoint(pointsInLine1->GetId(lastLine1PointId), lastPointLine1);
+
+  //  double lastPointLine2[3] = { 0,0,0 }; // first point on line 2;
+  //  vtkIdType lastLine2PointId = this->GetPreviousLocation(startLine2PointId, numberOfPointsInLine2, line2Closed);
+  //  inputROIPoints->GetPoint(pointsInLine2->GetId(startLine2PointId), lastPointLine2);
+
+  //  secondPointDistance = vtkMath::Distance2BetweenPoints(secondPointLine1, secondPointLine2);
+  //  secondLastPointDistance = vtkMath::Distance2BetweenPoints(secondPointLine1, lastPointLine2);
+
+  //  lastPointDistance = vtkMath::Distance2BetweenPoints(lastPointLine1, lastPointLine2);
+  //  lastSecondPointDistance = vtkMath::Distance2BetweenPoints(lastPointLine1, secondPointLine2);
+  //  if (secondPointDistance >= secondLastPointDistance && lastPointDistance >= lastSecondPointDistance)
+  //  {
+  //    line1ReverseDirection = true;
+  //  }
+  //}
 
   // Initialize the Dynamic Programming table.
   // Rows represent line 1. Columns represent line 2.
@@ -404,7 +439,7 @@ void vtkPlanarContourToClosedSurfaceConversionRule::TriangulateBetweenContours(v
   }
 
   // Initialize the first column in the table.
-  vtkIdType currentPointIdLine1 = this->GetNextLocation(startLine1PointId, numberOfPointsInLine2, line1Closed);
+  vtkIdType currentPointIdLine1 = this->GetNextLocation(startLine1PointId, numberOfPointsInLine2, line1Closed, line1ReverseDirection);
   for (int line1PointIndex = 1; line1PointIndex < numberOfPointsInLine1; ++line1PointIndex)
   {
     double currentPointLine1[3] = { 0,0,0 }; // current point on line 1
@@ -421,42 +456,26 @@ void vtkPlanarContourToClosedSurfaceConversionRule::TriangulateBetweenContours(v
       backtrackTable[line1PointIndex][line2PointIndex] = DYNAMIC_BACKTRACK_UP;
     }
 
-    currentPointIdLine1 = this->GetNextLocation(currentPointIdLine1, numberOfPointsInLine1, line1Closed);
+    currentPointIdLine1 = this->GetNextLocation(currentPointIdLine1, numberOfPointsInLine1, line1Closed, line1ReverseDirection);
   }
 
   // Fill the rest of the table.
-  vtkIdType previousLine1 = startLine1PointId;
-  vtkIdType previousLine2 = startLine2PointId;
-
-  currentPointIdLine1 = this->GetNextLocation(startLine1PointId, numberOfPointsInLine1, line1Closed);
+  vtkIdType previousLine1PointID = startLine1PointId;
+  vtkIdType previousLine2PointID = startLine2PointId;
+  currentPointIdLine1 = this->GetNextLocation(startLine1PointId, numberOfPointsInLine1, line1Closed, line1ReverseDirection);
   currentPointIdLine2 = this->GetNextLocation(startLine2PointId, numberOfPointsInLine2, line2Closed);
-
-  vtkIdType line1PointIndex = 1;
-  vtkIdType line2PointIndex = 1;
-  for (line1PointIndex = 1; line1PointIndex < numberOfPointsInLine1; ++line1PointIndex)
+  for (vtkIdType line1PointIndex = 1; line1PointIndex < numberOfPointsInLine1; ++line1PointIndex)
   {
     double pointOnLine1[3] = { 0,0,0 };
     inputROIPoints->GetPoint(pointsInLine1->GetId(currentPointIdLine1), pointOnLine1);
 
-    for (line2PointIndex = 1; line2PointIndex < numberOfPointsInLine2; ++line2PointIndex)
+    for (vtkIdType line2PointIndex = 1; line2PointIndex < numberOfPointsInLine2; ++line2PointIndex)
     {
       double pointOnLine2[3] = { 0,0,0 };
       inputROIPoints->GetPoint(pointsInLine2->GetId(currentPointIdLine2), pointOnLine2);
 
       double distance = vtkMath::Distance2BetweenPoints(pointOnLine1, pointOnLine2);
-
-      // Use the pre-calculated closest point.
-      if (currentPointIdLine1 == closestPointFromLine2ToLine1Ids[previousLine2])
-      {
-        scoreTable[line1PointIndex][line2PointIndex] = scoreTable[line1PointIndex][line2PointIndex - 1] + distance;
-        backtrackTable[line1PointIndex][line2PointIndex] = DYNAMIC_BACKTRACK_LEFT;
-      }
-      else if (currentPointIdLine2 == closestPointFromLine1ToLine2Ids[previousLine1])
-      {
-        scoreTable[line1PointIndex][line2PointIndex] = scoreTable[line1PointIndex - 1][line2PointIndex] + distance;
-        backtrackTable[line1PointIndex][line2PointIndex] = DYNAMIC_BACKTRACK_UP;
-      }
-      else if (scoreTable[line1PointIndex][line2PointIndex - 1] <= scoreTable[line1PointIndex - 1][line2PointIndex])
+      if (scoreTable[line1PointIndex][line2PointIndex - 1] <= scoreTable[line1PointIndex - 1][line2PointIndex])
       {
         scoreTable[line1PointIndex][line2PointIndex] = scoreTable[line1PointIndex][line2PointIndex - 1] + distance;
         backtrackTable[line1PointIndex][line2PointIndex] = DYNAMIC_BACKTRACK_LEFT;
@@ -467,24 +486,26 @@ void vtkPlanarContourToClosedSurfaceConversionRule::TriangulateBetweenContours(v
         backtrackTable[line1PointIndex][line2PointIndex] = DYNAMIC_BACKTRACK_UP;
       }
 
-      // Advance the pointers
-      previousLine2 = currentPointIdLine2;
+      previousLine2PointID = currentPointIdLine2;
       currentPointIdLine2 = this->GetNextLocation(currentPointIdLine2, numberOfPointsInLine2, line2Closed);
     }
-    previousLine1 = currentPointIdLine1;
-    currentPointIdLine1 = this->GetNextLocation(currentPointIdLine1, numberOfPointsInLine1, line1Closed);
+    previousLine1PointID = currentPointIdLine1;
+    currentPointIdLine1 = this->GetNextLocation(currentPointIdLine1, numberOfPointsInLine1, line1Closed, line1ReverseDirection);
   }
 
-  // Backtrack.
-  currentPointIdLine1 = line1EndPoint;
-  currentPointIdLine2 = line2EndPoint;
-  --line1PointIndex;
-  --line2PointIndex;
+  ////////////////////
+  // Backtrack
+  ////////////////////
+
+  // Determine ending points
+  currentPointIdLine1 = startLine1PointId;
+  currentPointIdLine2 = startLine2PointId;
+  vtkIdType line1PointIndex = numberOfPointsInLine1 - 1;
+  vtkIdType line2PointIndex = numberOfPointsInLine2 - 1;
   while (line1PointIndex > 0 || line2PointIndex > 0)
   {
     double line1Point[3] = { 0,0,0 }; // current point on line 1
     inputROIPoints->GetPoint(pointsInLine1->GetId(currentPointIdLine1), line1Point);
-
     double line2Point[3] = { 0,0,0 }; // current point on line 2
     inputROIPoints->GetPoint(pointsInLine2->GetId(currentPointIdLine2), line2Point);
 
@@ -500,7 +521,7 @@ void vtkPlanarContourToClosedSurfaceConversionRule::TriangulateBetweenContours(v
     }
     else // DYNAMIC_BACKTRACK_UP
     {
-      vtkIdType previousPointIndexLine1 = this->GetPreviousLocation(currentPointIdLine1, numberOfPointsInLine1, line1Closed);
+      vtkIdType previousPointIndexLine1 = this->GetPreviousLocation(currentPointIdLine1, numberOfPointsInLine1, line1Closed, line1ReverseDirection);
       currentTriangle[2] = pointsInLine1->GetId(previousPointIndexLine1);
       line1PointIndex -= 1;
       currentPointIdLine1 = previousPointIndexLine1;
@@ -514,7 +535,7 @@ void vtkPlanarContourToClosedSurfaceConversionRule::TriangulateBetweenContours(v
 }
 
 //----------------------------------------------------------------------------
-vtkIdType vtkPlanarContourToClosedSurfaceConversionRule::GetEndLoop(vtkIdType startLoopIndex, int numberOfPoints, bool loopClosed)
+vtkIdType vtkPlanarContourToClosedSurfaceConversionRule::GetEndLoop(vtkIdType startLoopIndex, int numberOfPoints, bool loopClosed, bool reverseDirection/*=false*/)
 {
   if (startLoopIndex != 0)
   {
@@ -531,30 +552,30 @@ vtkIdType vtkPlanarContourToClosedSurfaceConversionRule::GetEndLoop(vtkIdType st
 }
 
 //----------------------------------------------------------------------------
-vtkIdType vtkPlanarContourToClosedSurfaceConversionRule::GetClosestPoint(vtkPolyData* inputROIPoints, double* originalPoint, vtkIdList* linePointIds)
+vtkPlanarContourToClosedSurfaceConversionRule::ClosestPointType vtkPlanarContourToClosedSurfaceConversionRule::GetClosestPoint(vtkPolyData* inputROIPoints, double* originalPoint, vtkIdList* linePointIds)
 {
   if (!inputROIPoints)
   {
     vtkErrorMacro("inputROIPoints: Invalid vtkPolyData!");
-    return 0;
+    return ClosestPointType();
   }
 
   if (!linePointIds)
   {
     vtkErrorMacro("GetClosestPoint: Invalid vtkIdList!");
-    return 0;
+    return ClosestPointType();
   }
 
   double pointOnLine[3] = { 0,0,0 }; // point from the given line
   inputROIPoints->GetPoint(linePointIds->GetId(0), pointOnLine);
 
-  double minimumDistance = vtkMath::Distance2BetweenPoints(originalPoint, pointOnLine); // minimum distance from the point to the line
-  double closestPointIndex = 0;
+  double minimumDistance = VTK_DOUBLE_MAX;
+  int closestPointIndex = -1;
 
   int numberOfPoints = linePointIds->GetNumberOfIds();
 
   // Loop through all of the points in the current line
-  for (int currentPointIndex = 1; currentPointIndex < numberOfPoints; ++currentPointIndex)
+  for (int currentPointIndex = 0; currentPointIndex < numberOfPoints; ++currentPointIndex)
   {
     inputROIPoints->GetPoint(linePointIds->GetId(currentPointIndex), pointOnLine);
 
@@ -566,7 +587,10 @@ vtkIdType vtkPlanarContourToClosedSurfaceConversionRule::GetClosestPoint(vtkPoly
     }
   }
 
-  return closestPointIndex;
+  ClosestPointType closestPoint;
+  closestPoint.ID = closestPointIndex;
+  closestPoint.Distance = minimumDistance;
+  return closestPoint;
 }
 
 //----------------------------------------------------------------------------
@@ -1286,8 +1310,8 @@ void vtkPlanarContourToClosedSurfaceConversionRule::CreateEndCapContour(vtkPolyD
   bounds[3] += (this->ImagePadding[0] / 2) * spacing[1];
 
   int dimensions[3] = { static_cast<int>(std::ceil((bounds[1] - bounds[0]) / spacing[0])),
-                        static_cast<int>(std::ceil((bounds[3] - bounds[2]) / spacing[1])),
-                        1 };
+    static_cast<int>(std::ceil((bounds[3] - bounds[2]) / spacing[1])),
+    1 };
   double origin[3] = { bounds[0], bounds[2], bounds[4] };
   int extent[6] = { 0, dimensions[0] - 1, 0, dimensions[1] - 1, 0, 0 };
 
@@ -1515,8 +1539,13 @@ void vtkPlanarContourToClosedSurfaceConversionRule::TriangulateContourInterior(v
 }
 
 //----------------------------------------------------------------------------
-vtkIdType vtkPlanarContourToClosedSurfaceConversionRule::GetNextLocation(vtkIdType currentLocation, int numberOfPoints, bool loopClosed)
+vtkIdType vtkPlanarContourToClosedSurfaceConversionRule::GetNextLocation(vtkIdType currentLocation, int numberOfPoints, bool loopClosed, bool reverseDirection/*=false*/)
 {
+  if (reverseDirection)
+  {
+    this->GetPreviousLocation(currentLocation, numberOfPoints, loopClosed, false);
+  }
+
   if (currentLocation + 1 == numberOfPoints) // If the current location is the last point.
   {
     if (loopClosed)
@@ -1530,8 +1559,13 @@ vtkIdType vtkPlanarContourToClosedSurfaceConversionRule::GetNextLocation(vtkIdTy
 }
 
 //----------------------------------------------------------------------------
-vtkIdType vtkPlanarContourToClosedSurfaceConversionRule::GetPreviousLocation(vtkIdType currentLocation, int numberOfPoints, bool loopClosed)
+vtkIdType vtkPlanarContourToClosedSurfaceConversionRule::GetPreviousLocation(vtkIdType currentLocation, int numberOfPoints, bool loopClosed, bool reverseDirection/*=false*/)
 {
+  if (reverseDirection)
+  {
+    this->GetNextLocation(currentLocation, numberOfPoints, loopClosed, false);
+  }
+
   if (currentLocation == 0) // If the current location is the first point.
   {
     if (loopClosed)
@@ -1604,6 +1638,7 @@ void vtkPlanarContourToClosedSurfaceConversionRule::FixLines(vtkPolyData* oldLin
 
   newLines->SetPoints(oldLines->GetPoints());
   newLines->SetLines(lines);
+
 }
 
 //----------------------------------------------------------------------------

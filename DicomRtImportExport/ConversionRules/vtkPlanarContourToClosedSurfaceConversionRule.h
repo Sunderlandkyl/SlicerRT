@@ -96,14 +96,24 @@ protected:
   /// \param numberOfPoints The number of points in the contour
   /// \param loopClosed Boolean indicating if the loop is closed or not
   /// \return The index of the last point in the contour
-  vtkIdType GetEndLoop(vtkIdType startLoopIndex, int numberOfPoints, bool loopClosed);
+  vtkIdType GetEndLoop(vtkIdType startLoopIndex, int numberOfPoints, bool loopClosed, bool reverseDirection = false);
+
+  struct ClosestPointType
+  {
+    ClosestPointType()
+      : ID(0)
+      , Distance(VTK_DOUBLE_MAX)
+    {}
+    vtkIdType ID;
+    double Distance;
+  };
 
   /// Find the point on the given line that is closest to the given point.
   /// \param inputROIPoints Polydata containing all of the points and contours
   /// \param originalPoint The point that is being compared to the line
   /// \param linePointIds The line that is being compared to the point
   /// \return The index of the point in the line that is closet to the specified point
-  vtkIdType GetClosestPoint(vtkPolyData* inputROIPoints, double* originalPoint, vtkIdList* linePointIds);
+  ClosestPointType GetClosestPoint(vtkPolyData* inputROIPoints, double* originalPoint, vtkIdList* linePointIds);
 
   /// Sort the contours based on Z value.
   /// \param inputROIPoints Polydata containing all of the points and contours
@@ -192,14 +202,14 @@ protected:
   /// \param The number of points in the contours
   /// \param Whether the loop is closed
   /// \return The id of the point that occurs next in the contour
-  vtkIdType GetNextLocation(vtkIdType currentLocation, int numberOfPoints, bool loopClosed);
+  vtkIdType GetNextLocation(vtkIdType currentLocation, int numberOfPoints, bool loopClosed, bool reverseDirection = false);
 
   /// Find the index of the next point in the contour.
   /// \param The location of the currentId
   /// \param The number of points in the contours
   /// \param Whether the loop is closed
   /// \return The id of the point that occurs previously in the contour
-  vtkIdType GetPreviousLocation(vtkIdType currentLocation, int numberOfPoints, bool loopClosed);
+  vtkIdType GetPreviousLocation(vtkIdType currentLocation, int numberOfPoints, bool loopClosed, bool reverseDirection = false);
 
   /// Remove points from the input lines, until there are no points with error less than VTK_DBL_EPSILON and
   /// the following is acheived (number of points in new line) / (number of points in old line) < decimation factor
